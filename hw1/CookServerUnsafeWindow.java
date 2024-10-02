@@ -46,7 +46,7 @@ public class CookServerUnsafeWindow {
 				return false;
 			} else {
 				window.add(d);
-				this.cooked += d.numBurgers;
+				this.cooked += 1;
 				return true;
 			}
 		}
@@ -56,7 +56,7 @@ public class CookServerUnsafeWindow {
 				return null;
 			} else {
 				Tray d = window.poll();
-				this.served += d.numBurgers;
+				this.served += 1;
 				return d;
 			}
 		}
@@ -100,41 +100,45 @@ public class CookServerUnsafeWindow {
 		// FILL IN THE METHOD.
 		public void run() {
 			for (int i = 0; i < maxRun; i++) {
-				System.out.println("new run " + maxRun + "hi");
+				// System.out.println("new run " + maxRun + "hi");
 				try {
 
 					cookQueue.acquire();
-					System.out.println(">>> Cook: " + cookName + " joined the cookQueue slot");
+					// System.out.println(">>> Cook: " + cookName + " joined the cookQueue slot");
 
 					windowLock.lock();
-					System.out.println(">>> Cook: " + cookName + " picked up the lock");
+					// System.out.println(">>> Cook: " + cookName + " picked up the lock");
 					boolean res = queue.add(cook());
 					windowLock.unlock();
-					if (!res) {
-						System.out.println("NOO");
-					} else {
-						System.out.println(">>> Cook: " + cookName + " Successfully added to the queue");
+					if(res && queue.isFull()){
+						cookToServerBridge.release();
+						serverToCookBridge.acquire();
 					}
-					System.out.println(">>> Cook: " + cookName + " opened cookToServer bridge");
-					cookToServerBridge.release();
-					serverToCookBridge.acquire();
-					System.out.println(">>> Cook: " + cookName + " came back from server finishing task");
+					// if (!res) {
+					// 	System.out.println("NOO");
+					// } else {
+					// 	System.out.println(">>> Cook: " + cookName + " Successfully added to the queue");
+					// }
+					// cookToServerBridge.release();
+					// serverToCookBridge.acquire();
+					// System.out.println(">>> Cook: " + cookName + " opened cookToServer bridge");
+					// System.out.println(">>> Cook: " + cookName + " came back from server finishing task");
 					// System.out.println(">>> Cook: " + cookName + " released the lock.");
 					cookQueue.release();
 				} catch (Exception e) {
 
 				}
 				try {
-					System.out.println(">>> Cook: " + cookName + " is sleeping");
+					// System.out.println(">>> Cook: " + cookName + " is sleeping");
 
 					Thread.sleep((long) Math.random() * 401 + 100);
 				} catch (Exception e) {
 					System.out.println("error" + e);
 				}
-				System.out.println(">>> Cook: " + cookName + " woke up");
+				// System.out.println(">>> Cook: " + cookName + " woke up");
 
 			}
-			System.out.println("Cook:" + cookName + " just finished all runs" + queue.getCooked());
+			// System.out.println("Cook:" + cookName + " just finished all runs" + queue.getCooked());
 		}
 	}
 
@@ -188,27 +192,29 @@ public class CookServerUnsafeWindow {
 				try {
 
 					cookToServerBridge.acquire();
-					System.err.println(serverName + "where am I stuck?");
-					System.out.println("<<< Server: " + serverName + " just jumped in from cookToServer bridge");
+					// System.err.println(serverName + "where am I stuck?");
+					// System.out.println("<<< Server: " + serverName + " just jumped in from cookToServer bridge");
 
-					windowLock.lock();
-					System.out.println("<<< Server: " + serverName + " picked up the mutex lock");
-					Tray t = serve();
-					windowLock.unlock();
-					if (t != null) {
-						System.out.println("<<< Server: " + serverName + " removed from the window");
+					// windowLock.lock();
+					// System.out.println("<<< Server: " + serverName + " picked up the mutex lock");
+					while(!queue.isEmpty()){
+						serve();
 					}
-					System.out
-							.println("<<< Server: " + serverName + " contacted the cook from the serverToCook bridge");
+					// windowLock.unlock();
+					// if (t != null) {
+					// 	System.out.println("<<< Server: " + serverName + " removed from the window");
+					// }
+					// System.out
+					// 		.println("<<< Server: " + serverName + " contacted the cook from the serverToCook bridge");
 					serverToCookBridge.release();
-					System.out.println("<<< Server: " + serverName + " is going to sleep");
+					// System.out.println("<<< Server: " + serverName + " is going to sleep");
 					Thread.sleep((long) Math.random() * 401 + 100);
 				} catch (Exception e) {
 					System.out.println("error" + e);
 				}
-				System.out.println("<<< Server: " + serverName + " woke up");
+				// System.out.println("<<< Server: " + serverName + " woke up");
 			}
-			System.out.println("Server: " + serverName + " finsihed");
+			// System.out.println("Server: " + serverName + " finsihed");
 		}
 	}
 
@@ -217,7 +223,7 @@ public class CookServerUnsafeWindow {
 		int NUM_COOKS = 10;
 		int COOK_MAXRUN = 100; // 100
 		int NUM_SERVERS = 5;
-		int WINDOW_SIZE = 3;
+		int WINDOW_SIZE = 5;
 
 		// YOU CAN MODIFY THE CODES BELOW THIS LINE.
 		UnsafeWindow window = new UnsafeWindow(WINDOW_SIZE);
