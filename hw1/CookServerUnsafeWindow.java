@@ -77,16 +77,18 @@ public class CookServerUnsafeWindow {
 		private int maxRun;
 		public Lock windowLock;
 		public Semaphore cookQueue;
-		public Semaphore servers;
+		public Semaphore cookToServerBridge;
+		public Semaphore serverToCookBridge;
 
 		public Cook(String cookName, UnsafeWindow queue, int maxRun, Lock windowLock, Semaphore cookQueue,
-				Semaphore servers) {
+				Semaphore cookToServerBridge, Semaphore serverToCookBridge) {
 			this.cookName = cookName;
 			this.queue = queue;
 			this.maxRun = maxRun;
 			this.windowLock = windowLock;
 			this.cookQueue = cookQueue;
-			this.servers = servers;
+			this.cookToServerBridge = cookToServerBridge;
+			this.serverToCookBridge = serverToCookBridge;
 		}
 
 		private Tray cook() {
@@ -98,60 +100,26 @@ public class CookServerUnsafeWindow {
 		// FILL IN THE METHOD.
 		public void run() {
 			for (int i = 0; i < maxRun; i++) {
-				// Tray toBeServed = cook();
-				// You cannot insert a tray if the window is full
-				// while (queue.isFull()) {
-				// System.out.println("freezing?");
-				// }
+				System.out.println("new run " + maxRun + "hi");
 				try {
 
 					cookQueue.acquire();
-					System.out.println(">>> Cook: " + cookName + " joined the slot");
+					System.out.println(">>> Cook: " + cookName + " joined the cookQueue slot");
 
 					windowLock.lock();
-
 					System.out.println(">>> Cook: " + cookName + " picked up the lock");
 					boolean res = queue.add(cook());
 					windowLock.unlock();
-
-					if (res && queue.isFull()) {
-						// System.out.println("here?");
-						System.err.println("<<< Cook: " + cookName + " queue is full now releasing to server");
-						servers.release();
-						// while(servers.availablePermits() > 0){
-						// 	System.out.println("waiting");
-						// }
-						// windowLock.unlock();
-						// servers.acquire();
-						// servers.release();
-					} else if (!res) {
-						System.out.println("Bad");
-						// throw new Exception("Someshit happened");
+					if (!res) {
+						System.out.println("NOO");
+					} else {
+						System.out.println(">>> Cook: " + cookName + " Successfully added to the queue");
 					}
-					// if (!res) {
-					// System.out.println(">>> Cook: " + cookName + "failed to add. I need to
-					// wait");
-					// windowLock.unlock();
-					// System.out.println(">>> Cook: " + cookName + " released the lock to wait.");
-					// // Thread.sleep(200);
-					// int count = 0;
-					// while (!queue.isFull()) {
-					// if (count == 0) {
-					// System.out.println(">>> Cook: " + cookName + " is waiting");
-					// }
-					// count++;
-					// }
-					// windowLock.lock();
-					// System.out.println(">>> Cook: " + cookName + " got the lock back after
-					// wait.");
-					// queue.add(toBeServed);
-					// }
-					// if (res && queue.isFull()) {
-					// // cookQueue.
-					// } else {
-
-					// }
-					System.out.println(">>> Cook: " + cookName + " released the lock.");
+					System.out.println(">>> Cook: " + cookName + " opened cookToServer bridge");
+					cookToServerBridge.release();
+					serverToCookBridge.acquire();
+					System.out.println(">>> Cook: " + cookName + " came back from server finishing task");
+					// System.out.println(">>> Cook: " + cookName + " released the lock.");
 					cookQueue.release();
 				} catch (Exception e) {
 
@@ -166,6 +134,7 @@ public class CookServerUnsafeWindow {
 				System.out.println(">>> Cook: " + cookName + " woke up");
 
 			}
+			System.out.println("Cook:" + cookName + " just finished all runs" + queue.getCooked());
 		}
 	}
 
@@ -175,15 +144,17 @@ public class CookServerUnsafeWindow {
 		private UnsafeWindow queue;
 		private boolean canContinue;
 		public Lock windowLock;
-		public Semaphore servers;
+		public Semaphore cookToServerBridge;
+		public Semaphore serverToCookBridge;
 
-		public Server(String serverName, UnsafeWindow queue, Lock windowLock, Semaphore servers) {
+		public Server(String serverName, UnsafeWindow queue, Lock windowLock, Semaphore cookToServerBridge,
+				Semaphore serverToCookBridge) {
 			this.serverName = serverName;
 			this.queue = queue;
 			this.canContinue = true;
 			this.windowLock = windowLock;
-			this.servers = servers;
-
+			this.cookToServerBridge = cookToServerBridge;
+			this.serverToCookBridge = serverToCookBridge;
 		}
 
 		public synchronized boolean canContinue() {
@@ -192,6 +163,12 @@ public class CookServerUnsafeWindow {
 
 		public synchronized void stopRun() {
 			this.canContinue = false;
+			
+			// Realized that once all the cooks are done my servers would hang cuz they're
+			// waiting on cookToServerBridge to open. So this is a way to clean up any leftover threads.
+			while (cookToServerBridge.hasQueuedThreads()) {
+				cookToServerBridge.release();
+			}
 		}
 
 		private Tray serve() {
@@ -206,27 +183,32 @@ public class CookServerUnsafeWindow {
 
 		// FILL IN THE METHOD.
 		public void run() {
-			System.out.println(">>> Server:" + serverName + " Processing...");
-			// while (queue.isEmpty()) {
-			// System.out.println("<<< Server is waiting");
-			// }
+			// System.out.println(">>> Server:" + serverName + " Processing...");
+			while (canContinue) {
+				try {
 
-			try {
-				servers.acquire();
-				System.out.println("<<< Server: " + serverName + " just jumped in lock");
+					cookToServerBridge.acquire();
+					System.err.println(serverName + "where am I stuck?");
+					System.out.println("<<< Server: " + serverName + " just jumped in from cookToServer bridge");
 
-				windowLock.lock();
-				System.out.println("<<< Server: " + serverName + " picked up the lock");
-				serve();
-				windowLock.unlock();
-				System.out.println("<<< Server: " + serverName + " released the lock");
-				System.out.println("<<< Server: " + serverName + " is going to sleep");
-				Thread.sleep((long) Math.random() * 401 + 100);
-			} catch (Exception e) {
-				System.out.println("error" + e);
+					windowLock.lock();
+					System.out.println("<<< Server: " + serverName + " picked up the mutex lock");
+					Tray t = serve();
+					windowLock.unlock();
+					if (t != null) {
+						System.out.println("<<< Server: " + serverName + " removed from the window");
+					}
+					System.out
+							.println("<<< Server: " + serverName + " contacted the cook from the serverToCook bridge");
+					serverToCookBridge.release();
+					System.out.println("<<< Server: " + serverName + " is going to sleep");
+					Thread.sleep((long) Math.random() * 401 + 100);
+				} catch (Exception e) {
+					System.out.println("error" + e);
+				}
+				System.out.println("<<< Server: " + serverName + " woke up");
 			}
-			System.out.println("<<< Server: " + serverName + " woke up");
-
+			System.out.println("Server: " + serverName + " finsihed");
 		}
 	}
 
@@ -243,14 +225,16 @@ public class CookServerUnsafeWindow {
 		Server[] servers = new Server[NUM_SERVERS];
 		ReentrantLock lock = new ReentrantLock();
 		Semaphore s_cooks = new Semaphore(1);
-		Semaphore s_servers = new Semaphore(0);
+		Semaphore cookToServer = new Semaphore(0);
+		Semaphore serverToCook = new Semaphore(0);
+
 		for (int i = 0; i < NUM_COOKS; i++) {
-			cooks[i] = new Cook("p" + i, window, COOK_MAXRUN, lock, s_cooks, s_servers);
+			cooks[i] = new Cook("p" + i, window, COOK_MAXRUN, lock, s_cooks, cookToServer, serverToCook);
 			cooks[i].start();
 		}
 
 		for (int i = 0; i < NUM_SERVERS; i++) {
-			servers[i] = new Server("c" + i, window, lock, s_servers);
+			servers[i] = new Server("c" + i, window, lock, cookToServer, serverToCook);
 			servers[i].start();
 		}
 
@@ -258,7 +242,7 @@ public class CookServerUnsafeWindow {
 		for (int i = 0; i < NUM_COOKS; i++) {
 			cooks[i].join();
 		}
-
+		System.out.println("All of the cooks are finished");
 		for (int i = 0; i < NUM_SERVERS; i++) {
 			servers[i].stopRun();
 			servers[i].join();
