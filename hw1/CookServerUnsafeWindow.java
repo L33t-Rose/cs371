@@ -100,45 +100,24 @@ public class CookServerUnsafeWindow {
 		// FILL IN THE METHOD.
 		public void run() {
 			for (int i = 0; i < maxRun; i++) {
-				// System.out.println("new run " + maxRun + "hi");
 				try {
-
 					cookQueue.acquire();
-					// System.out.println(">>> Cook: " + cookName + " joined the cookQueue slot");
-
+					Tray toServe = cook();
 					windowLock.lock();
-					// System.out.println(">>> Cook: " + cookName + " picked up the lock");
-					boolean res = queue.add(cook());
+					queue.add(toServe);
 					windowLock.unlock();
-					if(res && queue.isFull()){
-						cookToServerBridge.release();
-						serverToCookBridge.acquire();
-					}
-					// if (!res) {
-					// 	System.out.println("NOO");
-					// } else {
-					// 	System.out.println(">>> Cook: " + cookName + " Successfully added to the queue");
-					// }
-					// cookToServerBridge.release();
-					// serverToCookBridge.acquire();
-					// System.out.println(">>> Cook: " + cookName + " opened cookToServer bridge");
-					// System.out.println(">>> Cook: " + cookName + " came back from server finishing task");
-					// System.out.println(">>> Cook: " + cookName + " released the lock.");
+					cookToServerBridge.release();
+					serverToCookBridge.acquire();
 					cookQueue.release();
 				} catch (Exception e) {
 
 				}
 				try {
-					// System.out.println(">>> Cook: " + cookName + " is sleeping");
-
 					Thread.sleep((long) Math.random() * 401 + 100);
 				} catch (Exception e) {
 					System.out.println("error" + e);
 				}
-				// System.out.println(">>> Cook: " + cookName + " woke up");
-
 			}
-			// System.out.println("Cook:" + cookName + " just finished all runs" + queue.getCooked());
 		}
 	}
 
@@ -167,9 +146,10 @@ public class CookServerUnsafeWindow {
 
 		public synchronized void stopRun() {
 			this.canContinue = false;
-			
+
 			// Realized that once all the cooks are done my servers would hang cuz they're
-			// waiting on cookToServerBridge to open. So this is a way to clean up any leftover threads.
+			// waiting on cookToServerBridge to open. So this is a way to clean up any
+			// leftover threads.
 			while (cookToServerBridge.hasQueuedThreads()) {
 				cookToServerBridge.release();
 			}
@@ -187,34 +167,19 @@ public class CookServerUnsafeWindow {
 
 		// FILL IN THE METHOD.
 		public void run() {
-			// System.out.println(">>> Server:" + serverName + " Processing...");
 			while (canContinue) {
 				try {
 
 					cookToServerBridge.acquire();
-					// System.err.println(serverName + "where am I stuck?");
-					// System.out.println("<<< Server: " + serverName + " just jumped in from cookToServer bridge");
-
-					// windowLock.lock();
-					// System.out.println("<<< Server: " + serverName + " picked up the mutex lock");
-					while(!queue.isEmpty()){
-						serve();
-					}
-					// windowLock.unlock();
-					// if (t != null) {
-					// 	System.out.println("<<< Server: " + serverName + " removed from the window");
-					// }
-					// System.out
-					// 		.println("<<< Server: " + serverName + " contacted the cook from the serverToCook bridge");
+					windowLock.lock();
+					serve();
+					windowLock.unlock();
 					serverToCookBridge.release();
-					// System.out.println("<<< Server: " + serverName + " is going to sleep");
 					Thread.sleep((long) Math.random() * 401 + 100);
 				} catch (Exception e) {
 					System.out.println("error" + e);
 				}
-				// System.out.println("<<< Server: " + serverName + " woke up");
 			}
-			// System.out.println("Server: " + serverName + " finsihed");
 		}
 	}
 
