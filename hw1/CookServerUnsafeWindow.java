@@ -1,8 +1,6 @@
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class CookServerUnsafeWindow {
 	// DO NOT MODIFY THIS CLASS.
@@ -46,7 +44,7 @@ public class CookServerUnsafeWindow {
 				return false;
 			} else {
 				window.add(d);
-				this.cooked += 1;
+				this.cooked += d.numBurgers;
 				return true;
 			}
 		}
@@ -56,7 +54,7 @@ public class CookServerUnsafeWindow {
 				return null;
 			} else {
 				Tray d = window.poll();
-				this.served += 1;
+				this.served += d.numBurgers;
 				return d;
 			}
 		}
@@ -75,17 +73,17 @@ public class CookServerUnsafeWindow {
 		private String cookName;
 		private UnsafeWindow queue;
 		private int maxRun;
-		public Lock windowLock;
+		public Semaphore kitchen;
 		public Semaphore cookQueue;
 		public Semaphore cookToServerBridge;
 		public Semaphore serverToCookBridge;
 
-		public Cook(String cookName, UnsafeWindow queue, int maxRun, Lock windowLock, Semaphore cookQueue,
+		public Cook(String cookName, UnsafeWindow queue, int maxRun, Semaphore kitchen, Semaphore cookQueue,
 				Semaphore cookToServerBridge, Semaphore serverToCookBridge) {
 			this.cookName = cookName;
 			this.queue = queue;
 			this.maxRun = maxRun;
-			this.windowLock = windowLock;
+			this.kitchen = kitchen;
 			this.cookQueue = cookQueue;
 			this.cookToServerBridge = cookToServerBridge;
 			this.serverToCookBridge = serverToCookBridge;
@@ -101,18 +99,20 @@ public class CookServerUnsafeWindow {
 		public void run() {
 			for (int i = 0; i < maxRun; i++) {
 				try {
-					cookQueue.acquire();
+					// Kitchen allows for more chefs to actually come in and cook their food
+					kitchen.acquire();
 					Tray toServe = cook();
-					windowLock.lock();
+					// Once a chef is ready to serve they'll come in one at a time
+					cookQueue.acquire();
 					queue.add(toServe);
-					windowLock.unlock();
+					
+					// Signals to the servers that there's a new burger on the queue
 					cookToServerBridge.release();
+					// Once the server signals to the chef that it's done serving that food
+					// Cook can now leave.
 					serverToCookBridge.acquire();
 					cookQueue.release();
-				} catch (Exception e) {
-
-				}
-				try {
+					kitchen.release();
 					Thread.sleep((long) Math.random() * 401 + 100);
 				} catch (Exception e) {
 					System.out.println("error" + e);
@@ -126,16 +126,14 @@ public class CookServerUnsafeWindow {
 		private String serverName;
 		private UnsafeWindow queue;
 		private boolean canContinue;
-		public Lock windowLock;
 		public Semaphore cookToServerBridge;
 		public Semaphore serverToCookBridge;
 
-		public Server(String serverName, UnsafeWindow queue, Lock windowLock, Semaphore cookToServerBridge,
+		public Server(String serverName, UnsafeWindow queue, Semaphore cookToServerBridge,
 				Semaphore serverToCookBridge) {
 			this.serverName = serverName;
 			this.queue = queue;
 			this.canContinue = true;
-			this.windowLock = windowLock;
 			this.cookToServerBridge = cookToServerBridge;
 			this.serverToCookBridge = serverToCookBridge;
 		}
@@ -167,13 +165,10 @@ public class CookServerUnsafeWindow {
 
 		// FILL IN THE METHOD.
 		public void run() {
-			while (canContinue) {
+			while (canContinue()) {
 				try {
-
 					cookToServerBridge.acquire();
-					windowLock.lock();
 					serve();
-					windowLock.unlock();
 					serverToCookBridge.release();
 					Thread.sleep((long) Math.random() * 401 + 100);
 				} catch (Exception e) {
@@ -188,24 +183,24 @@ public class CookServerUnsafeWindow {
 		int NUM_COOKS = 10;
 		int COOK_MAXRUN = 100; // 100
 		int NUM_SERVERS = 5;
-		int WINDOW_SIZE = 5;
+		int WINDOW_SIZE = 10;
 
 		// YOU CAN MODIFY THE CODES BELOW THIS LINE.
 		UnsafeWindow window = new UnsafeWindow(WINDOW_SIZE);
 		Cook[] cooks = new Cook[NUM_COOKS];
 		Server[] servers = new Server[NUM_SERVERS];
-		ReentrantLock lock = new ReentrantLock();
-		Semaphore s_cooks = new Semaphore(1);
+		Semaphore kitchen = new Semaphore(WINDOW_SIZE);
+		Semaphore cookQueue = new Semaphore(1);
 		Semaphore cookToServer = new Semaphore(0);
 		Semaphore serverToCook = new Semaphore(0);
 
 		for (int i = 0; i < NUM_COOKS; i++) {
-			cooks[i] = new Cook("p" + i, window, COOK_MAXRUN, lock, s_cooks, cookToServer, serverToCook);
+			cooks[i] = new Cook("p" + i, window, COOK_MAXRUN, kitchen, cookQueue, cookToServer, serverToCook);
 			cooks[i].start();
 		}
 
 		for (int i = 0; i < NUM_SERVERS; i++) {
-			servers[i] = new Server("c" + i, window, lock, cookToServer, serverToCook);
+			servers[i] = new Server("c" + i, window, cookToServer, serverToCook);
 			servers[i].start();
 		}
 
