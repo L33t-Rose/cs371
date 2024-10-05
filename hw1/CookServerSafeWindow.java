@@ -59,6 +59,7 @@ public class CookServerSafeWindow {
 				try {
 					canServe.await();
 				} catch (Exception e) {
+					System.out.println("Error occured:\n"+e);
 				}
 			}
 			Tray d = window.poll();
